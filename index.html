@@ -15,61 +15,76 @@
     canvas {
       max-width: 100%;
       border: 1px solid #ccc;
+      margin-bottom: 10px;
     }
   </style>
 </head>
 <body>
   <h1>Meesho Label Cropper</h1>
   <input type="file" id="pdf-upload" accept="application/pdf">
-  <button onclick="downloadCropped()">Download Cropped Image</button>
+  <button onclick="downloadPDF()">Download Cropped PDF</button>
   <div id="preview"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script>
-    let croppedCanvas;
+    const previewDiv = document.getElementById('preview');
+    let croppedCanvases = [];
 
     document.getElementById('pdf-upload').addEventListener('change', async function (e) {
       const file = e.target.files[0];
       if (!file) return;
+
+      previewDiv.innerHTML = '';
+      croppedCanvases = [];
 
       const reader = new FileReader();
       reader.onload = async function () {
         const typedarray = new Uint8Array(this.result);
 
         const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
-        const page = await pdf.getPage(1);
-
         const scale = 2;
-        const viewport = page.getViewport({ scale });
 
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const viewport = page.getViewport({ scale });
 
-        await page.render({ canvasContext: context, viewport }).promise;
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
 
-        // Crop from top to "Tax Invoice" area (approx top 200px)
-        const cropHeight = 200;
-        croppedCanvas = document.createElement('canvas');
-        const croppedCtx = croppedCanvas.getContext('2d');
-        croppedCanvas.width = canvas.width;
-        croppedCanvas.height = cropHeight;
+          await page.render({ canvasContext: context, viewport }).promise;
 
-        croppedCtx.drawImage(canvas, 0, 0, canvas.width, cropHeight, 0, 0, canvas.width, cropHeight);
+          // Detect "Tax Invoice" text position (approximate height crop)
+          const cropHeight = 250; // You can fine-tune this based on your label format
+          const croppedCanvas = document.createElement('canvas');
+          const croppedCtx = croppedCanvas.getContext('2d');
+          croppedCanvas.width = canvas.width;
+          croppedCanvas.height = cropHeight;
 
-        document.getElementById('preview').innerHTML = '';
-        document.getElementById('preview').appendChild(croppedCanvas);
+          croppedCtx.drawImage(canvas, 0, 0, canvas.width, cropHeight, 0, 0, canvas.width, cropHeight);
+          previewDiv.appendChild(croppedCanvas);
+          croppedCanvases.push(croppedCanvas);
+        }
       };
       reader.readAsArrayBuffer(file);
     });
 
-    function downloadCropped() {
-      if (!croppedCanvas) return;
-      const link = document.createElement('a');
-      link.download = 'cropped-label.png';
-      link.href = croppedCanvas.toDataURL('image/png');
-      link.click();
+    async function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const pdfDoc = new jsPDF();
+
+      for (let i = 0; i < croppedCanvases.length; i++) {
+        const imgData = croppedCanvases[i].toDataURL('image/jpeg');
+        const width = pdfDoc.internal.pageSize.getWidth();
+        const height = (croppedCanvases[i].height / croppedCanvases[i].width) * width;
+
+        if (i > 0) pdfDoc.addPage();
+        pdfDoc.addImage(imgData, 'JPEG', 0, 0, width, height);
+      }
+
+      pdfDoc.save('cropped-labels.pdf');
     }
   </script>
 </body>
