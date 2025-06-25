@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Meesho Label Cropper</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    #preview {
+      margin-top: 20px;
+    }
+    canvas {
+      max-width: 100%;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Meesho Label Cropper</h1>
+  <input type="file" id="pdf-upload" accept="application/pdf">
+  <button onclick="downloadCropped()">Download Cropped Image</button>
+  <div id="preview"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+  <script>
+    let croppedCanvas;
+
+    document.getElementById('pdf-upload').addEventListener('change', async function (e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async function () {
+        const typedarray = new Uint8Array(this.result);
+
+        const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+        const page = await pdf.getPage(1);
+
+        const scale = 2;
+        const viewport = page.getViewport({ scale });
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        await page.render({ canvasContext: context, viewport }).promise;
+
+        // Crop from top to "Tax Invoice" area (approx top 200px)
+        const cropHeight = 200;
+        croppedCanvas = document.createElement('canvas');
+        const croppedCtx = croppedCanvas.getContext('2d');
+        croppedCanvas.width = canvas.width;
+        croppedCanvas.height = cropHeight;
+
+        croppedCtx.drawImage(canvas, 0, 0, canvas.width, cropHeight, 0, 0, canvas.width, cropHeight);
+
+        document.getElementById('preview').innerHTML = '';
+        document.getElementById('preview').appendChild(croppedCanvas);
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    function downloadCropped() {
+      if (!croppedCanvas) return;
+      const link = document.createElement('a');
+      link.download = 'cropped-label.png';
+      link.href = croppedCanvas.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+</body>
+</html>
