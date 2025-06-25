@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Meesho Label Cropper</title>
+  <title>Meesho Label Cropper (OCR Version)</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -20,13 +20,15 @@
   </style>
 </head>
 <body>
-  <h1>Meesho Label Cropper</h1>
+  <h1>Meesho Label Cropper (OCR Version)</h1>
   <input type="file" id="pdf-upload" accept="application/pdf">
   <button onclick="downloadPDF()">Download Cropped PDF</button>
   <div id="preview"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/tesseract.js@v2.1.5/dist/tesseract.min.js"></script>
+
   <script>
     const previewDiv = document.getElementById('preview');
     let croppedCanvases = [];
@@ -41,7 +43,6 @@
       const reader = new FileReader();
       reader.onload = async function () {
         const typedarray = new Uint8Array(this.result);
-
         const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
         const scale = 2;
 
@@ -53,23 +54,40 @@
           const context = canvas.getContext('2d');
           canvas.height = viewport.height;
           canvas.width = viewport.width;
-
           await page.render({ canvasContext: context, viewport }).promise;
 
-          // Detect "Tax Invoice" text position (approximate height crop)
-          const cropHeight = 250; // You can fine-tune this based on your label format
-          const croppedCanvas = document.createElement('canvas');
-          const croppedCtx = croppedCanvas.getContext('2d');
-          croppedCanvas.width = canvas.width;
-          croppedCanvas.height = cropHeight;
-
-          croppedCtx.drawImage(canvas, 0, 0, canvas.width, cropHeight, 0, 0, canvas.width, cropHeight);
-          previewDiv.appendChild(croppedCanvas);
-          croppedCanvases.push(croppedCanvas);
+          const croppedCanvas = await cropToTaxInvoice(canvas);
+          if (croppedCanvas) {
+            previewDiv.appendChild(croppedCanvas);
+            croppedCanvases.push(croppedCanvas);
+          }
         }
       };
       reader.readAsArrayBuffer(file);
     });
+
+    async function cropToTaxInvoice(canvas) {
+      const ctx = canvas.getContext('2d');
+      const dataURL = canvas.toDataURL('image/png');
+
+      const result = await Tesseract.recognize(dataURL, 'eng', {
+        logger: m => console.log(m)
+      });
+
+      const words = result.data.words;
+      const match = words.find(w => w.text.toLowerCase().includes('tax invoice'));
+
+      if (!match) return null;
+
+      const cropY = match.bbox.y1 + 10; // Crop just below the "Tax Invoice" text
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = canvas.width;
+      croppedCanvas.height = cropY;
+
+      const croppedCtx = croppedCanvas.getContext('2d');
+      croppedCtx.drawImage(canvas, 0, 0, canvas.width, cropY, 0, 0, canvas.width, cropY);
+      return croppedCanvas;
+    }
 
     async function downloadPDF() {
       const { jsPDF } = window.jspdf;
